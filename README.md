@@ -34,7 +34,7 @@
 ```
 dir-navigator/
 ├── plugin.json       # 插件清单：入口、关键词、匹配指令
-├── logo.svg          # 插件图标
+├── logo.png          # 插件图标（uTools 清单要求 PNG，256×256）
 ├── index.html        # uTools 主面板兜底页（唤起独立大窗口）
 ├── preload.js        # 主窗口桥接：onPluginEnter 入口 → 打开导航器窗口 / 快速收藏指令
 ├── bookmark-store.js # 书签配置的 Node 侧共享逻辑（读当前目录、去重、rev 重试保存）
@@ -52,7 +52,8 @@ dir-navigator/
 │   ├── ui-check.js   # 自动 UI 自检：真实浏览器点击 + 断言（需 Node.js 22+/Chrome）
 │   └── commit-msg.txt# 首次提交信息（UTF-8，交给 git -F 读取）
 ├── docs/
-│   └── screenshot.png# 自动 UI 自检生成的界面截图
+│   ├── screenshot.png# 自动 UI 自检生成的界面截图
+│   └── logo-source.svg# 图标矢量源文件（改图标后重新导出 logo.png）
 ├── .github/
 │   └── workflows/
 │       └── verify.yml# CI：每次 push 在 Node 20 上跑一遍静态自检
@@ -237,7 +238,7 @@ uTools 模式——开发者工具加载 `plugin.json`：
 | 窗口一片空白、不显示 | 创建窗口时 `show:false`，回调没被调用就永不显示 | 回调改为闭包兜底 `arguments[0] || navWin`，并在 `onPluginEnter` 路径上直接 `show()` |
 | 右键文件/文件夹没有「在目录导航器中打开」 | `plugin.json` 的 `files` 匹配指令字段非法 | `files` 的 `fileType` 只接受 `"file"` / `"directory"`，**想要文件+文件夹都匹配就整条省略**（当前即如此），`minLength/maxLength` 控制选中数量 |
 | 再次右键打开时窗口停在旧目录 | 窗口复用时没有把新目标推给渲染层 | `preload.js` 的 `navigateExisting()` 通过 `webContents.executeJavaScript` 调用 `window.__dirnav.open()`，加载中会等 `did-finish-load` 再重试 |
-| 插件图标在 uTools 里不显示 | 部分版本/旧清单要求 `logo` 为 png | 当前用 `logo.svg`（矢量、随主题清晰）；如遇不显示，导出 256×256 的 `logo.png` 并把 `plugin.json` 的 `logo` 改成 `logo.png` |
+| 插件图标在 uTools 里不显示 | uTools 清单的 `logo` 只接受 PNG | 已使用 256×256 的 `logo.png`；修改图标时从 `docs/logo-source.svg` 重新导出 PNG，保持同名覆盖 |
 | 中文目录名乱码 | 文件系统返回的是 UTF-8，页面声明了 `<meta charset="utf-8">`，正常不会出现 | 若出现，检查宿主是否改写了编码；本插件全部字符串按 UTF-8 处理 |
 
 ---
@@ -249,9 +250,9 @@ uTools 模式——开发者工具加载 `plugin.json`：
 - **单击/双击消歧延迟 250ms**：为同时支持"单击下钻"与"双击在资源管理器打开"。
 - **列宽按目录记忆**：拖动范围限制在 160–560px，最多保存 80 条覆盖值；超出后按最久未用淘汰。设置里的「默认列宽」仍是所有未单独调整过的列的回退值。
 - **窗口关闭了 `sandbox`/`contextIsolation`**：Electron 20+ 默认开启会把 preload 的 `window.services` 隔离掉；本插件只加载本地页面、不加载远程内容，因此按 uTools 插件惯例关闭，以换取 Node 文件系统能力。若要接远程内容，必须重新打开隔离并改写桥接。
-- **`logo.svg` 而非 png**：矢量图标在缩放/深色主题下更清晰；个别旧版本若校验格式，替换成 256×256 png 即可（见「故障排查」）。
+- **图标必须是 PNG**：uTools 清单的 `logo` 只接受 PNG，仓库使用 256×256 的 `logo.png`；`docs/logo-source.svg` 仅作矢量源文件，不参与运行。
 - **`files` 匹配指令不写 `fileType`**：uTools 只接受 `file`/`directory`，省略才同时匹配文件与文件夹。
-- **不调用 `utools.outPlugin()`**：官方文档写明「uTools 主窗口隐藏后，插件应用可能在用户设定时间（默认 3 分钟）内自动退出」。退出会连带销毁导航器窗口，所以这里只 `hideMainWindow()`，让插件保持已进入状态、窗口常驻；用户关闭窗口即结束会话。
+- **正常导航路径不调用 `utools.outPlugin()`**：官方文档写明「uTools 主窗口隐藏后，插件应用可能在用户设定时间（默认 3 分钟）内自动退出」。退出会连带销毁导航器窗口，所以这里只 `hideMainWindow()`，让插件保持已进入状态、窗口常驻；只有「收藏当前文件夹」这种没有窗口的指令会在完成后主动退出。
 - **不依赖 uTools 特有 API**：核心逻辑（书签 + Miller 列 + fs 枚举）可平移为独立 Electron/Tauri 应用，降低平台风险。
 
 ---

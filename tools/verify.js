@@ -60,7 +60,7 @@ function matchAll(src, re) {
 // 1. 必需文件
 // ---------------------------------------------------------------
 const REQUIRED = [
-  "plugin.json", "logo.svg", "index.html",
+  "plugin.json", "logo.png", "index.html",
   "preload.js", "app-preload.js",
   "app.html", "app.css", "app.js", "demo-services.js",
   "bookmark-store.js",
@@ -99,6 +99,19 @@ if (PJ) {
       bad("缺少必填字段 " + k);
     }
   });
+  if (PJ.logo === "logo.png" && fileExists("logo.png")) {
+    const png = fs.readFileSync(path.join(ROOT, "logo.png"));
+    const sig = png.slice(0, 8).toString("hex");
+    const w = png.length >= 24 ? png.readUInt32BE(16) : 0;
+    const h = png.length >= 24 ? png.readUInt32BE(20) : 0;
+    if (sig === "89504e470d0a1a0a" && w === 256 && h === 256) {
+      ok("logo.png 是 256×256 PNG（uTools 清单只接受 PNG）");
+    } else {
+      bad("logo.png 必须是 256×256 PNG，当前 " + w + "×" + h + "，signature=" + sig);
+    }
+  } else if (PJ.logo && /\.svg$/i.test(PJ.logo)) {
+    bad("plugin.json 的 logo 不能是 SVG，uTools 只接受 PNG（建议 256×256）");
+  }
   if (PJ.preload) {
     if (fileExists(PJ.preload)) ok("preload -> " + PJ.preload + "（文件存在）");
     else bad("preload 指向的文件不存在: " + PJ.preload);
