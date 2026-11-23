@@ -6,6 +6,10 @@
 - 右侧 **Miller 列**：像 macOS Finder 的"分栏视图"，点目录向右下钻、点文件直接打开，随时沿**面包屑**向上跳几级。
 - 不用记住完整路径、不用纯键盘敲命令——识别代替回忆，专攻"反复访问"场景。
 
+![界面预览](docs/screenshot.png)
+
+> 上图由 `tools/ui-check.js` 在 headless Chrome 中真实运行后自动截取。
+
 ---
 
 ## 功能
@@ -37,11 +41,15 @@ dir-navigator/
 ├── app-preload.js    # 导航器窗口桥接：暴露 window.services（fs 枚举/打开/存储）
 ├── demo-services.js  # 演示桥接：浏览器直开 app.html 时用内存目录树顶替真实 fs
 ├── verify.cmd        # 静态自检入口（双击运行，调用 tools/verify.js）
+├── ui-check.cmd      # 自动 UI 自检入口（headless Chrome + CDP，调用 tools/ui-check.js）
 ├── init-git.cmd      # git 初始化 + 首次提交（一次性）
 ├── push-github.cmd   # 建仓并推送到 GitHub（gh 或手动建空仓两种路径）
 ├── tools/
 │   ├── verify.js     # 静态自检脚本（需 Node.js）
+│   ├── ui-check.js   # 自动 UI 自检：真实浏览器点击 + 断言（需 Node.js 22+/Chrome）
 │   └── commit-msg.txt# 首次提交信息（UTF-8，交给 git -F 读取）
+├── docs/
+│   └── screenshot.png# 自动 UI 自检生成的界面截图
 ├── .github/
 │   └── workflows/
 │       └── verify.yml# CI：每次 push 在 Node 20 上跑一遍静态自检
@@ -65,13 +73,14 @@ dir-navigator/
 
 ---
 
-## 三种验证方式
+## 四种验证方式
 
 | 方式 | 怎么用 | 能验证什么 |
 | --- | --- | --- |
 | **① 浏览器演示（最快，无需安装）** | 双击 `app.html`，用 Chrome/Edge 打开 | 全部视觉与交互：书签增删改/置顶/拖动、Miller 列下钻、面包屑回跳、过滤、键盘、右键菜单、设置、空态。顶部会出现「演示模式 · 模拟数据」角标；打开文件/定位只会弹提示，不真操作 |
 | **② uTools 开发模式** | 见下方「安装 / 导入」 | 真实文件系统、`utools.db` 持久化、`shellOpenPath`、`readCurrentFolderPath`、右键匹配指令 |
 | **③ 打包后安装** | 开发者工具「打包」出 `.upx` | 同上，且是用户实际安装路径 |
+| **④ 自动 UI 自检** | 双击 `ui-check.cmd`，或 `node tools/ui-check.js` | 在 headless Chrome 里用真实鼠标事件跑 44 项断言（书签、下钻、面包屑、过滤、键盘、右键、弹窗、设置持久化、竞态守卫），并输出 `docs/screenshot.png` |
 
 > 演示模式的数据存在浏览器 `localStorage`（键 `dirnav:demo:config`），与真实 `utools.db` 互不影响；想重置演示数据，清掉该键或换无痕窗口即可。
 
@@ -105,6 +114,7 @@ dir-navigator/
 | 单击文件 | 直接打开（关联程序） |
 | 双击目录 | 在资源管理器中打开 |
 | 单击书签 | 锚定到该书签目录 |
+| 双击书签 | 在资源管理器中打开该书签目录 |
 | 单击面包屑 | 跳到该级目录 |
 | 右键 | 打开 / 定位 / 复制 / 书签操作 |
 
@@ -141,13 +151,20 @@ dir-navigator/
 ```bat
 init-git.cmd    :: 首次：git init + 首次提交（提交信息读 tools/commit-msg.txt）
 verify.cmd      :: 每次改动后：静态自检（需要 Node.js）
+ui-check.cmd    :: 需要时：自动 UI 自检（Node.js 22+ 与 Chrome/Edge）
 ```
 
-两个脚本都可以直接双击，控制台输出英文（原因见上一节），最后会 `pause` 停住等你看结果；在终端里调用可加 `-nopause` 参数跳过暂停。
+三个脚本都可以直接双击，控制台输出英文（原因见上一节），最后会 `pause` 停住等你看结果；在终端里调用可加 `-nopause` 参数跳过暂停。
 
-`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（含 `files.fileType` 只收 `file`/`directory` 的陷阱）、四个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及几条历史 bug 的回归守卫（preload 必须绝对路径、Electron 隔离开关、`window.__dirnav` 钩子、`clearFilter`、`prevChainLen`）。
+`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（含 `files.fileType` 只收 `file`/`directory` 的陷阱）、五个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及几条历史 bug 的回归守卫（preload 必须绝对路径、Electron 隔离开关、`window.__dirnav` 钩子、`clearFilter`、`prevChainLen`、过滤后刷新状态栏、导航前清理单击定时器）。
 
-退出码 `0` = 通过，`1` = 有失败项。
+`tools/ui-check.js` 是**零依赖**的真实浏览器自检：用 Node 22 内置的 `WebSocket` 直连 Chrome DevTools Protocol，以 headless 模式打开 `app.html`（走演示桥接），注入测试助手后用 `Input.dispatchMouseEvent` 发真实鼠标事件，覆盖上面人工清单里的主要路径——启动态、书签导航、Miller 下钻、面包屑回跳、上一级、过滤与「筛选命中 N 项」、`Esc` 清过滤、键盘选择/打开/上钻/下钻、右键菜单、添加书签（含「此电脑」视图不预填 `__DRIVES__` 哨兵）、双击书签、设置持久化、以及“点目录后立刻切书签不会被 250ms 旧定时器带偏”的竞态守卫。跑完把界面截图写到 `docs/screenshot.png`。
+
+- 需要 **Node.js 22+**（依赖全局 `WebSocket`）和本机 Chrome 或 Edge；也可用环境变量 `CHROME_PATH` 指定浏览器。
+- 找不到浏览器时打印 `[SKIP]` 并以 `0` 退出，不会让本地检查误报失败。
+- 该脚本**有意不进 CI**：GitHub Actions 的 `ubuntu-latest` 默认没有 Chrome，为它引入浏览器依赖会拖慢并脆化静态流水线；UI 自检在提交前本地跑一遍即可。
+
+`verify.cmd` 与 `ui-check.cmd` 的退出码都是 `0` = 通过，`1` = 有失败项。
 
 ---
 

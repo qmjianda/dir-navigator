@@ -8,7 +8,7 @@
  * 检查内容：
  *   1. 必需文件齐全
  *   2. plugin.json 结构与 uTools 合法字段（含 files 指令 fileType 陷阱）
- *   3. 四个 JS 文件的语法（vm.Script 编译，不执行）
+ *   3. 五个 JS 文件的语法（vm.Script 编译，不执行）
  *   4. app.html 的 id 与 app.js 里 $("#id") 选择器一一对应
  *   5. SVG 雪碧图 symbol 与 icon()/#i-xxx 引用对应
  *   6. services 接口三方一致（app.js 调用点 vs app-preload.js vs demo-services.js）
@@ -63,6 +63,7 @@ const REQUIRED = [
   "plugin.json", "logo.svg", "index.html",
   "preload.js", "app-preload.js",
   "app.html", "app.css", "app.js", "demo-services.js",
+  "ui-check.cmd", "tools/ui-check.js",
   "README.md"
 ];
 
@@ -177,7 +178,8 @@ if (PJ) {
 // ---------------------------------------------------------------
 head("3. JS 语法（编译校验，不执行）");
 [
-  "preload.js", "app-preload.js", "app.js", "demo-services.js", "tools/verify.js"
+  "preload.js", "app-preload.js", "app.js", "demo-services.js",
+  "tools/verify.js", "tools/ui-check.js"
 ].forEach(function (f) {
   if (!fileExists(f)) { bad("文件不存在，无法校验: " + f); return; }
   const src = readText(f);
@@ -461,6 +463,34 @@ if (appJs) {
   if (/function clearFilter\s*\(/.test(appJs)) ok("存在 clearFilter（切换目录时清空过滤词）");
   else wr("没有 clearFilter，过滤词可能跨目录残留");
   if (/prevChainLen/.test(appJs)) ok("列数变化时才自动横向滚动（prevChainLen 守卫）");
+
+  // 2026-11 交互修复批次：这些守卫对应 tools/ui-check.js 里真实复现过的问题
+  if (/const seq = \+\+navSeq;/.test(appJs) && /if \(seq !== navSeq\) return;/.test(appJs)) {
+    ok("导航带 navSeq 守卫（丢弃过期异步结果）");
+  } else {
+    bad("navigateTo/descend 缺少 navSeq 守卫：快速连续导航会被旧结果覆盖");
+  }
+  if ((appJs.match(/clearTimeout\(clickTimer\)/g) || []).length >= 4) {
+    ok("导航/上钻/双击前都会清理单击定时器");
+  } else {
+    bad("未在 navigateTo/descend/goUp 里 clearTimeout(clickTimer)：先点目录再点书签会被 250ms 旧定时器带偏");
+  }
+  const sf = appJs.indexOf("function setFilter");
+  if (sf >= 0 && /updateStatus\(\)/.test(appJs.slice(sf, sf + 600))) {
+    ok("setFilter 之后刷新状态栏（筛选命中 N 项）");
+  } else {
+    bad("setFilter 未调用 updateStatus：过滤时状态栏不会显示「筛选命中 N 项」");
+  }
+  if (/cur !== DRIVES/.test(appJs)) {
+    ok("添加书签不会把 __DRIVES__ 哨兵预填进路径");
+  } else {
+    bad("openBookmarkModal 未排除 DRIVES 哨兵：在「此电脑」视图添加书签会预填 __DRIVES__ 并保存失败");
+  }
+  if (/item\.addEventListener\("dblclick"/.test(appJs) && /openPath\(a\.path\)/.test(appJs)) {
+    ok("书签支持双击在资源管理器中打开");
+  } else {
+    bad("书签缺少 dblclick -> openPath：PRD F2 要求双击锚点在资源管理器中打开");
+  }
 }
 
 // ---------------------------------------------------------------

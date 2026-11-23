@@ -44,6 +44,7 @@
   let editingBookmarkId = null; // null=新增，否则为编辑目标 id
   let contextTarget = null;     // 右键菜单目标
   let clickTimer = null;        // 单击/双击消歧
+  let navSeq = 0;               // 导航序号：丢弃快速连续导航的过期异步结果
   let toastTimer = null;
 
   // ============================================================
@@ -78,7 +79,7 @@
     clearTimeout(toastTimer);
     els.toast.textContent = "";
     els.toast.className = "toast" + (isErr ? " err" : "");
-    els.toast.appendChild(icon(isErr ? "i-close" : "i-open")).classList.add("t-ic");
+    els.toast.appendChild(icon(isErr ? "i-close" : "i-check")).classList.add("t-ic");
     const sp = document.createElement("span");
     sp.textContent = msg;
     els.toast.appendChild(sp);
@@ -139,7 +140,7 @@
       item.className = "bm-item";
       item.dataset.id = a.id;
       item.draggable = true;
-      if (rootPath && a.path === rootPath) item.classList.add("selected");
+      if (rootPath && normPath(a.path) === normPath(rootPath)) item.classList.add("selected");
 
       const dot = document.createElement("span");
       dot.className = "bm-dot";
@@ -157,7 +158,15 @@
         item.appendChild(pin);
       }
 
+      item.title = "单击导航 · 双击在资源管理器中打开";
       item.addEventListener("click", function () { navigateTo(a.path); });
+      // 双击不再等待 250ms 消歧：第一次单击已经导航，双击只是额外打开资源管理器，
+      // 这样单击保持即时响应，同时满足 PRD F2。
+      item.addEventListener("dblclick", function () {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+        openPath(a.path);
+      });
       item.addEventListener("contextmenu", function (e) { openContextMenu(e, { kind: "bookmark", anchor: a }); });
       item.addEventListener("dragstart", function (e) { onBmDragStart(e, a); });
       item.addEventListener("dragover", function (e) { onBmDragOver(e, item); });
@@ -232,6 +241,9 @@
   // ============================================================
   async function navigateTo(targetPath, highlightName) {
     if (!config) return;
+    const seq = ++navSeq;
+    clearTimeout(clickTimer);
+    clickTimer = null;
     const p = String(targetPath || "");
     chain = [];
     selIndex = -1;
@@ -245,6 +257,7 @@
       if (a) a.lastVisited = Date.now();
     }
     await loadColumn(0);
+    if (seq !== navSeq) return; // 已有更新的导航，丢弃本次结果
     renderAll();
     markVisited(p);
     if (highlightName) highlightItem(highlightName);
@@ -252,16 +265,22 @@
 
   async function descend(item, colIndex) {
     if (!item || !item.isDir) return;
+    const seq = ++navSeq;
+    clearTimeout(clickTimer);
+    clickTimer = null;
     chain = chain.slice(0, colIndex + 1);
     chain.push({ path: item.path, name: item.name, items: [], error: null, truncated: 0 });
     selIndex = -1;
     clearFilter();
     await loadColumn(chain.length - 1);
+    if (seq !== navSeq) return; // 快速点了别处，别让旧列覆盖新导航
     renderAll();
     markVisited(item.path);
   }
 
   async function goUp() {
+    clearTimeout(clickTimer);
+    clickTimer = null;
     clearFilter();
     if (chain.length > 1) {
       chain.pop();
@@ -536,6 +555,7 @@
     filterText = v;
     selIndex = -1;
     renderColumns();
+    updateStatus();
   }
 
   function clearFilter() {
@@ -674,7 +694,8 @@
       selectedColor = a.color || BOOKMARK_COLORS[0];
     } else {
       els.bmTitle.textContent = "添加书签";
-      els.bmPath.value = presetPath || currentPath() || "";
+      const cur = currentPath();
+      els.bmPath.value = presetPath || (cur && cur !== DRIVES ? cur : "");
       els.bmName.value = presetName || "";
       selectedColor = BOOKMARK_COLORS[0];
     }
@@ -813,6 +834,12 @@
     window.addEventListener("resize", function () { hideContextMenu(); });
   }
 
+  function closeWindow() {
+    // 演示模式没有真实窗口可关，给个提示避免「按了没反应」
+    if (services.demo) { toast("演示模式：真实插件中按 Esc 会关闭窗口"); return; }
+    try { window.close(); } catch (e) { /* 忽略 */ }
+  }
+
   function onKeydown(e) {
     // 弹层打开时
     if (!els.overlay.classList.contains("hidden")) {
@@ -839,7 +866,16 @@
       }
       return;
     }
-    if (e.key === "Escape") { setFilter(""); return; }
+    if (e.key === "Escape") {
+      // 级联：有过滤词先清过滤，否则关闭窗口（PRD F7）
+      if (filterText) {
+        els.filter.value = "";
+        setFilter("");
+        return;
+      }
+      closeWindow();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
       e.preventDefault();
       els.filter.focus();

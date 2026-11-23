@@ -236,6 +236,7 @@ const servicesApi = {
   },
 
   // ---- 常量 ----
+  demo: false, // 真实桥接永远不是演示模式；demo-services.js 里为 true
   DRIVES_SENTINEL: DRIVES_SENTINEL
 };
 
