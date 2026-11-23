@@ -10,6 +10,22 @@
       "platform": ["win32"]
     },
     {
+      "code": "dirnav-collect",
+      "description": "把当前资源管理器文件夹直接加入书签（无需打开导航器）",
+      "mainHide": true,
+      "cmds": [
+        "收藏当前文件夹",
+        {
+          "type": "window",
+          "label": "收藏当前文件夹",
+          "match": {
+            "app": ["explorer.exe"]
+          }
+        }
+      ],
+      "platform": ["win32"]
+    },
+    {
       "code": "dirnav-open",
       "description": "在目录导航器中打开所选文件夹或文件",
       "mainHide": true,

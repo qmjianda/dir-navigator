@@ -8,7 +8,7 @@
  * 检查内容：
  *   1. 必需文件齐全
  *   2. plugin.json 结构与 uTools 合法字段（含 files 指令 fileType 陷阱）
- *   3. 六个 JS 文件的语法（vm.Script 编译，不执行）
+ *   3. 七个 JS 文件的语法（vm.Script 编译，不执行）
  *   4. app.html 的 id 与 app.js 里 $("#id") 选择器一一对应
  *   5. SVG 雪碧图 symbol 与 icon()/#i-xxx 引用对应
  *   6. services 接口三方一致（app.js 调用点 vs app-preload.js vs demo-services.js）
@@ -63,6 +63,7 @@ const REQUIRED = [
   "plugin.json", "logo.svg", "index.html",
   "preload.js", "app-preload.js",
   "app.html", "app.css", "app.js", "demo-services.js",
+  "bookmark-store.js",
   "ui-check.cmd", "tools/ui-check.js",
   "README.md"
 ];
@@ -144,6 +145,14 @@ if (PJ) {
             }
             if (c.extensions && c.match) wr(ct + " extensions 与 match 只能二选一（同时存在时 uTools 只用其中一个）");
             if (c.label !== undefined && typeof c.label !== "string") bad(ct + " label 应为字符串");
+          } else if (c.type === "window") {
+            if (!c.match || !Array.isArray(c.match.app) || c.match.app.length === 0) {
+              bad(ct + " window 指令必须提供 match.app（如 [\"explorer.exe\"]）");
+            } else if (!c.label) {
+              bad(ct + " window 指令必须提供 label");
+            } else {
+              ok(ct + " window -> " + c.match.app.join(","));
+            }
           } else if (c.type === "regex" || c.type === "over" || c.type === "img") {
             // 其它匹配类型，这里只做存在性检查
           } else if (c.type === undefined && c.label) {
@@ -160,6 +169,25 @@ if (PJ) {
       }
       if (f.mainHide !== undefined && typeof f.mainHide !== "boolean") bad(tag + " mainHide 应为布尔值");
     });
+  }
+
+  // 2.2b 收藏当前文件夹指令（A 方案的关键配置）
+  if (Array.isArray(PJ.features)) {
+    const collect = PJ.features.find(function (f) { return f && f.code === "dirnav-collect"; });
+    if (!collect) {
+      bad("缺少 dirnav-collect 功能指令（无法在不打开导航器时收藏资源管理器文件夹）");
+    } else {
+      if (collect.mainHide === true) ok("dirnav-collect 设置了 mainHide（静默执行）");
+      else bad("dirnav-collect 必须设置 mainHide:true，否则收藏时会弹出插件主窗口");
+      const cmds = Array.isArray(collect.cmds) ? collect.cmds : [];
+      const win = cmds.find(function (c) { return c && c.type === "window"; });
+      if (!win) bad("dirnav-collect 缺少 window 类型指令（无法在资源管理器前台触发）");
+      else if (!win.match || !Array.isArray(win.match.app) || win.match.app.indexOf("explorer.exe") < 0) {
+        bad("dirnav-collect 的 window.match.app 应包含 explorer.exe");
+      } else {
+        ok("dirnav-collect 匹配 explorer.exe 窗口");
+      }
+    }
   }
 
   // 2.3 绝对路径泄漏
@@ -179,6 +207,7 @@ if (PJ) {
 head("3. JS 语法（编译校验，不执行）");
 [
   "preload.js", "app-preload.js", "app.js", "demo-services.js",
+  "bookmark-store.js",
   "tools/verify.js", "tools/ui-check.js"
 ].forEach(function (f) {
   if (!fileExists(f)) { bad("文件不存在，无法校验: " + f); return; }
@@ -443,7 +472,21 @@ if (fileExists("preload.js")) {
   else wr("preload.js 未显式声明 nodeIntegration:true");
   if (/sandbox\s*:\s*false/.test(p)) ok("显式关闭 sandbox");
   else wr("preload.js 未显式声明 sandbox:false");
-  const pNoComment = p
+  // 收藏指令完成后必须退出插件；其余路径仍不应调用 outPlugin（会连带销毁导航器窗口）
+  const collectBlock = (p.match(/\/\/ ---- 收藏指令[\s\S]*?\/\/ ---- 收藏指令结束/) || [""])[0];
+  if (collectBlock && /utools\.outPlugin\s*\(/.test(collectBlock)) {
+    ok("收藏指令完成后主动退出插件");
+  } else {
+    bad("收藏指令没有调用 utools.outPlugin()，uTools 会停在空白主窗口");
+  }
+  const enterIdx = p.indexOf('action.code === "dirnav-collect"');
+  if (enterIdx >= 0 && p.slice(enterIdx, enterIdx + 320).indexOf("__dirnavEntered") >= 0) {
+    ok("收藏指令会阻止 index.html 兜底打开导航器");
+  } else {
+    bad("dirnav-collect 分支未设置 __dirnavEntered：主窗口兜底逻辑仍会打开导航器");
+  }
+  const pNoCollect = p.replace(/\/\/ ---- 收藏指令[\s\S]*?\/\/ ---- 收藏指令结束/, "");
+  const pNoComment = pNoCollect
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
   if (!/utools\.outPlugin\s*\(/.test(pNoComment)) {
@@ -513,6 +556,30 @@ if (appJs) {
     ok("拖动条与拖动中光标的样式存在");
   } else {
     bad("app.css 缺少 .col-resizer / body.col-resizing 样式");
+  }
+
+  // 2026-11 快速收藏：导航器内一键收藏 + Shift 命名，重复路径不重复添加
+  if (appJs.indexOf("collectCurrentFolderBookmark") >= 0 && appJs.indexOf("e.shiftKey") >= 0 && appJs.indexOf("els.addCurrentBtn.addEventListener") >= 0) {
+    ok("导航器「+」支持一键收藏，Shift+点击保留命名弹窗");
+  } else {
+    bad("addCurrentBtn 未接入 collectCurrentFolderBookmark 或 Shift 分支");
+  }
+  if (appJs.indexOf("collectCurrentFolderBookmark") >= 0 && appJs.indexOf("normPath(a.path) === normPath(p)") >= 0) {
+    ok("一键收藏按 normPath 去重");
+  } else {
+    bad("一键收藏缺少 normPath 去重：同一目录会被重复加入书签");
+  }
+  const storeSrc = fileExists("bookmark-store.js") ? readText("bookmark-store.js") : "";
+  if (/function collectCurrentFolder\s*\(/.test(storeSrc) && /readCurrentFolderPath/.test(storeSrc)) {
+    ok("bookmark-store 负责读取资源管理器当前目录");
+  } else {
+    bad("bookmark-store.js 缺少 collectCurrentFolder/readCurrentFolderPath");
+  }
+  const appHtml = fileExists("app.html") ? readText("app.html") : "";
+  if (/id="addCurrentBtn"[^>]*title="[^"]*Shift/.test(appHtml)) {
+    ok("「+」按钮的 title 提示 Shift 用法");
+  } else {
+    wr("「+」按钮 title 未提示 Shift+点击可命名");
   }
 }
 

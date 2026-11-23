@@ -833,6 +833,54 @@
     if (isAdd) navigateTo(p);
   }
 
+  // 快速收藏用的默认颜色：优先补一个还没用过的颜色，用完了就轮换
+  function nextBookmarkColor() {
+    const used = config.anchors.map(function (a) { return a.color; });
+    for (let i = 0; i < BOOKMARK_COLORS.length; i++) {
+      if (used.indexOf(BOOKMARK_COLORS[i]) < 0) return BOOKMARK_COLORS[i];
+    }
+    return BOOKMARK_COLORS[config.anchors.length % BOOKMARK_COLORS.length];
+  }
+
+  // 把当前资源管理器目录直接加入书签；openNamedModal 为 true 时保留命名弹窗
+  async function collectCurrentFolderBookmark(openNamedModal) {
+    let p = "";
+    try { p = await services.getCurrentFolder(); } catch (e) { p = ""; }
+    p = String(p || "").trim();
+
+    if (openNamedModal) {
+      openBookmarkModal(null, p, p ? basename(p) : "");
+      return;
+    }
+    if (!p) {
+      toast("未能获取当前资源管理器目录（请先打开一个资源管理器窗口）", true);
+      return;
+    }
+
+    let st;
+    try { st = services.stat(p); } catch (e) { st = { exists: false }; }
+    if (!st || !st.exists || !st.isDir) {
+      toast("当前路径不是有效文件夹", true);
+      return;
+    }
+
+    const dup = config.anchors.find(function (a) { return normPath(a.path) === normPath(p); });
+    if (dup) {
+      toast("已在书签中：" + (dup.name || basename(dup.path)));
+      return;
+    }
+
+    const bookmark = {
+      id: uid(), name: basename(p), path: p, color: nextBookmarkColor(),
+      pinned: false, order: config.anchors.length,
+      createdAt: Date.now(), lastVisited: Date.now()
+    };
+    config.anchors.push(bookmark);
+    saveConfig();
+    renderBookmarks();
+    toast("已收藏：" + bookmark.name);
+  }
+
   // ============================================================
   // 设置弹窗
   // ============================================================
@@ -880,10 +928,9 @@
     els.upBtn.addEventListener("click", goUp);
     els.openInExplorer.addEventListener("click", openInExplorerCurrent);
     els.settingsBtn.addEventListener("click", openSettings);
-    els.addCurrentBtn.addEventListener("click", async function () {
-      const p = await services.getCurrentFolder();
-      if (p) openBookmarkModal(null, p, basename(p));
-      else toast("未能获取当前资源管理器目录（请先打开一个资源管理器窗口）", true);
+    els.addCurrentBtn.addEventListener("click", function (e) {
+      // 普通点击直接收藏；Shift+点击保留命名弹窗
+      collectCurrentFolderBookmark(!!e.shiftKey);
     });
     // 侧栏
     els.addBtn.addEventListener("click", function () { openBookmarkModal(null); });

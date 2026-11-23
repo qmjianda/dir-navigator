@@ -5,6 +5,7 @@
 // ============================================================
 
 const path = require("node:path");
+const bookmarkStore = require("./bookmark-store.js");
 
 let navWin = null;
 
@@ -115,6 +116,39 @@ function navigateExisting(win, openPath, highlight) {
   });
 }
 
+// ---- 收藏指令（唯一需要 outPlugin 的路径） ----
+// 进入条件：用户在资源管理器前台时通过指令/快捷键触发 dirnav-collect。
+// 这里在 uTools 抢走焦点之前读取路径，写完书签后用系统通知反馈，不打开导航器。
+function runCollectCommand() {
+  let notified = false;
+  function notify(text) {
+    if (notified) return;
+    notified = true;
+    try { utools.showNotification(text); } catch (e) { /* 忽略系统通知异常 */ }
+  }
+
+  bookmarkStore.collectCurrentFolder(utools).then(function (res) {
+    if (res.ok) {
+      notify("已收藏：" + res.bookmark.name);
+    } else if (res.reason === "duplicate") {
+      notify("已在书签中：" + (res.bookmark && res.bookmark.name ? res.bookmark.name : "该文件夹"));
+    } else if (res.reason === "no-folder") {
+      notify("没有读到资源管理器文件夹，请先在资源管理器中打开一个文件夹");
+    } else if (res.reason === "not-dir") {
+      notify("当前路径不是可收藏的文件夹");
+    } else {
+      notify("收藏失败，请重试");
+    }
+  }).catch(function () {
+    notify("收藏失败，请重试");
+  }).then(function () {
+    // 收藏指令没有独立窗口，完成即退出，避免插件常驻
+    try { utools.hideMainWindow(); } catch (e) { /* 忽略 */ }
+    try { setTimeout(function () { utools.outPlugin(); }, 150); } catch (e) { /* 忽略 */ }
+  });
+}
+// ---- 收藏指令结束 ----
+
 function hideMainWindow() {
   // 只隐藏 uTools 搜索面板，让独立大窗口成为焦点。
   //
@@ -150,6 +184,11 @@ function hideMainWindow() {
 
 // 插件入口：用户通过关键词或「在目录导航器中打开」匹配指令进入时触发
 utools.onPluginEnter(function (action) {
+  if (action && action.code === "dirnav-collect") {
+    window.__dirnavEntered = true; // 收藏指令不打开导航器，阻止 index.html 的兜底唤起
+    runCollectCommand();
+    return;
+  }
   window.__dirnavEntered = true; // 让 index.html 的兜底唤起让路
   let openPath = null;
   let highlight = null;

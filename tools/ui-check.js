@@ -599,7 +599,40 @@ async function main() {
       JSON.stringify(await evaluate("__t.names()")));
 
     // -----------------------------------------------------------
-    section("12. 控制台与截图");
+    section("12. 快速收藏当前文件夹");
+    await evaluate('__t.clickBm("Work")');
+    await waitFor('__t.crumb() === "Work"');
+    await evaluate('window.__origGetFolder = window.services.getCurrentFolder; window.services.getCurrentFolder = function () { return "C:/Users/you/Work/client-2025"; };');
+    const beforeCollect = await evaluate("__t.bmCount()");
+    await evaluate('document.querySelector("#addCurrentBtn").click()');
+    check("一键收藏新增书签且不弹窗",
+      await waitFor('__t.bmCount() === ' + (beforeCollect + 1) + ' && /已收藏/.test(__t.toast())', 3000) &&
+      !(await evaluate("__t.overlayOpen()")),
+      "count=" + (await evaluate("__t.bmCount()")) + " toast=" + (await evaluate("__t.toast()")));
+    check("默认名称取文件夹名并按路径去重记录",
+      (await evaluate("__t.anchors()")).some(function (a) {
+        return a.name === "client-2025" && /client-2025$/.test(a.path);
+      }),
+      JSON.stringify(await evaluate("__t.anchors()")));
+    await evaluate('document.querySelector("#addCurrentBtn").click()');
+    check("重复收藏不新增并提示已在书签中",
+      await waitFor('__t.bmCount() === ' + (beforeCollect + 1) + ' && /已在书签中/.test(__t.toast())', 3000),
+      "count=" + (await evaluate("__t.bmCount()")) + " toast=" + (await evaluate("__t.toast()")));
+    await evaluate('document.querySelector("#addCurrentBtn").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }))');
+    check("Shift+点击打开命名弹窗并预填当前路径",
+      await waitFor('__t.overlayOpen()', 2000) && (await evaluate("__t.modalPath()")) === "C:/Users/you/Work/client-2025",
+      "path=" + JSON.stringify(await evaluate("__t.modalPath()")));
+    await evaluate('document.querySelector("#bmCancel").click()');
+    check("取消命名弹窗", !(await evaluate("__t.overlayOpen()")));
+    await evaluate('window.services.getCurrentFolder = function () { return ""; };');
+    await evaluate('document.querySelector("#addCurrentBtn").click()');
+    check("拿不到资源管理器路径时提示失败",
+      await waitFor('/未能获取当前资源管理器目录/.test(__t.toast())', 2000),
+      "toast=" + (await evaluate("__t.toast()")));
+    await evaluate('window.services.getCurrentFolder = window.__origGetFolder;');
+
+    // -----------------------------------------------------------
+    section("13. 控制台与截图");
     check("无未捕获异常", !health.errors, "exceptions=" + (health.errors || 0));
 
     if (SHOT) {
