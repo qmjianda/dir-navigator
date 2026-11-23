@@ -304,6 +304,10 @@
     getCurrentFolder: function () {
       return Promise.resolve("C:\\Users\\you\\Work");
     },
+    onEntry: function () {
+      // 浏览器演示没有插件入口事件；返回空注销函数保持接口一致。
+      return function () {};
+    },
     getPath: function (name) {
       const map = {
         home: "C:\\Users\\you",

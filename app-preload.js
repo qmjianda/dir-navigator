@@ -1,13 +1,15 @@
 // ============================================================
-// app-preload.js —— 自定义窗口（目录导航器）桥接层
-// 职责：向前端 app.html 暴露文件系统枚举、打开、对话框、存储等本地能力。
-// 运行环境：Node.js 20 + uTools API（自定义窗口上下文）。
+// app-preload.js —— 插件主界面桥接层
+// 职责：向前端 app.html 暴露文件系统枚举、打开、对话框、存储等本地能力，
+//       并处理 uTools 入口（关键词、资源管理器文件、收藏指令）。
+// 运行环境：Node.js 20 + uTools API（主窗口 BrowserView 上下文）。
 // 遵循「最小暴露原则」：只暴露前端实际需要的、经过封装的接口。
 // ============================================================
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { clipboard, contextBridge } = require("electron");
+const bookmarkStore = require("./bookmark-store.js");
 
 const CONFIG_ID = "dirnav:config";
 const DRIVES_SENTINEL = "__DRIVES__"; // 虚拟「此电脑」视图标识
@@ -237,8 +239,47 @@ const servicesApi = {
 
   // ---- 常量 ----
   demo: false, // 真实桥接永远不是演示模式；demo-services.js 里为 true
-  DRIVES_SENTINEL: DRIVES_SENTINEL
+  DRIVES_SENTINEL: DRIVES_SENTINEL,
+
+  // ---- 入口目标（onPluginEnter 读取到的路径/高亮） ----
+  // 页面初始化可能晚于 onPluginEnter，所以先用队列接住；页面就绪后注册
+  // onEntry 就能立刻拿到，避免入口目标被丢弃或与默认导航互相覆盖。
+  onEntry: function (cb) {
+    if (typeof cb !== "function") return function () {};
+    entryListeners.push(cb);
+    if (pendingEntry) {
+      const entry = pendingEntry;
+      pendingEntry = null;
+      try { cb(entry); } catch (e) { /* 页面自己的异常不应影响入口 */ }
+    }
+    return function () {
+      const i = entryListeners.indexOf(cb);
+      if (i >= 0) entryListeners.splice(i, 1);
+    };
+  }
 };
+
+// 入口目标队列：只保留最新一次，避免快速连续触发时页面跳来跳去
+let pendingEntry = null;
+const entryListeners = [];
+
+function deliverEntry(openPath, highlight, refresh) {
+  const entry = { path: openPath || null, highlight: highlight || null, refresh: !!refresh };
+  if (entryListeners.length) {
+    entryListeners.slice().forEach(function (cb) {
+      try { cb(entry); } catch (e) { /* 忽略单个监听器异常 */ }
+    });
+    return;
+  }
+  pendingEntry = entry;
+}
+
+function showAndOpen(openPath, highlight, refresh) {
+  deliverEntry(openPath, highlight, refresh);
+  try {
+    if (typeof utools.showMainWindow === "function") utools.showMainWindow();
+  } catch (e) { /* 已在独立窗口时可能不可用，页面仍然能收到入口 */ }
+}
 
 // ------------------------------------------------------------
 // 挂载到页面
@@ -246,17 +287,85 @@ const servicesApi = {
 // Electron 20+ 默认 contextIsolation=true：此时 preload 里的 window 与页面
 // 的 window 是两个隔离上下文，直接赋值页面看不到（app.js 会误报「桥接层加载
 // 失败」）。所以两条腿走路：开启隔离时用 contextBridge，否则直接赋值。
-// preload.js 里已显式关闭隔离，这里仍做兼容，避免宿主版本差异导致白屏。
+// 主界面现在由 uTools 主窗口承载，隔离开关由宿主决定，这里做兼容处理。
 (function exposeServices() {
-  const isolated = typeof process !== "undefined" && process && process.contextIsolated;
-  if (isolated && typeof contextBridge !== "undefined" && contextBridge &&
-      typeof contextBridge.exposeInMainWorld === "function") {
+  const hasBridge = typeof contextBridge !== "undefined" && contextBridge &&
+    typeof contextBridge.exposeInMainWorld === "function";
+  if (hasBridge) {
     try {
       contextBridge.exposeInMainWorld("services", servicesApi);
       return;
-    } catch (e) { /* 落到直接赋值 */ }
+    } catch (e) { /* 未开启隔离时会抛错，落到直接赋值 */ }
   }
   try {
     window.services = servicesApi;
   } catch (e) { /* 忽略 */ }
 })();
+
+// ------------------------------------------------------------
+// 收藏指令：资源管理器前台 -> 写书签 -> 打开导航器并定位
+// ------------------------------------------------------------
+function runCollectCommand() {
+  let notified = false;
+  function notify(text) {
+    if (notified) return;
+    notified = true;
+    try { utools.showNotification(text); } catch (e) { /* 忽略系统通知异常 */ }
+  }
+
+  bookmarkStore.collectCurrentFolder(utools).then(function (res) {
+    let target = null;
+    if (res.ok) {
+      notify("已收藏：" + res.bookmark.name);
+      target = res.bookmark.path;
+    } else if (res.reason === "duplicate") {
+      notify("已在书签中：" + (res.bookmark && res.bookmark.name ? res.bookmark.name : "该文件夹"));
+      target = res.bookmark && res.bookmark.path ? res.bookmark.path : null;
+    } else if (res.reason === "no-folder") {
+      notify("没有读到资源管理器文件夹，请先在资源管理器中打开一个文件夹");
+    } else if (res.reason === "not-dir") {
+      notify("当前路径不是可收藏的文件夹");
+    } else {
+      notify("收藏失败，请重试");
+    }
+    // 收藏不是终点：打开导航器，成功/重复时直接定位到目标目录。
+    // refresh=true 让页面重读配置，刚写入的书签才会出现在左栏。
+    // 失败时也打开（停在上次目录），让用户能继续手动选择。
+    showAndOpen(target, null, true);
+  }).catch(function () {
+    notify("收藏失败，请重试");
+    showAndOpen(null, null, true);
+  });
+}
+
+// ------------------------------------------------------------
+// 插件入口
+// ------------------------------------------------------------
+utools.onPluginEnter(function (action) {
+  if (action && action.code === "dirnav-collect") {
+    runCollectCommand();
+    return;
+  }
+
+  // 「在目录导航器中打开」：目录直接定位，文件定位父目录并高亮
+  if (action && action.type === "files" && Array.isArray(action.payload) && action.payload.length) {
+    const dir = action.payload.find(function (x) {
+      return x && x.isDirectory && typeof x.path === "string" && x.path;
+    });
+    const file = action.payload.find(function (x) {
+      return x && x.isFile && typeof x.path === "string" && x.path;
+    });
+    if (dir) {
+      showAndOpen(dir.path, null);
+      return;
+    }
+    if (file) {
+      showAndOpen(path.dirname(file.path),
+        typeof file.name === "string" && file.name ? file.name : path.basename(file.path));
+      return;
+    }
+  }
+
+  // 普通关键词入口：app.html 已经是插件主页面，直接显示即可。
+  // 页面 init() 会按 lastPath / 首个书签恢复上次位置。
+});

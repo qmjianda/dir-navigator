@@ -50,6 +50,8 @@
   let navSeq = 0;               // 导航序号：丢弃快速连续导航的过期异步结果
   let toastTimer = null;
   let colDrag = null;           // 正在拖动的列宽调整状态
+  let appReady = false;         // 配置加载完、可以安全导航
+  let queuedEntry = null;       // 初始化期间到达的入口目标
 
   // ============================================================
   // 工具
@@ -977,6 +979,9 @@
   function closeWindow() {
     // 演示模式没有真实窗口可关，给个提示避免「按了没反应」
     if (services.demo) { toast("演示模式：真实插件中按 Esc 会关闭窗口"); return; }
+    // 主界面现在运行在 uTools 主窗口里，outPlugin 才会真正收起页面；
+    // window.close() 在 BrowserView 里不可靠，放在最后兜底。
+    if (typeof services.exitPlugin === "function") { services.exitPlugin(); return; }
     try { window.close(); } catch (e) { /* 忽略 */ }
   }
 
@@ -1038,9 +1043,46 @@
       return;
     }
     bindEvents();
+
+    // 入口目标可能早于 init 到达（onPluginEnter 先于页面配置加载），
+    // 先注册监听并排队，等 loadConfig 完成后按“入口优先”导航。
+    if (typeof services.onEntry === "function") {
+      services.onEntry(function (entry) {
+        if (!entry || !entry.path) return;
+        if (!appReady) {
+          queuedEntry = entry;
+          return;
+        }
+        (async function () {
+          // 全局收藏指令会直接改 utools.db；页面里的 config 可能已过期，
+          // 先重读再导航，避免随后的 markVisited 用旧配置覆盖掉新书签。
+          if (entry.refresh) {
+            await loadConfig();
+            buildSwatches();
+            renderBookmarks();
+          }
+          await navigateTo(entry.path, entry.highlight || null);
+        })().catch(function () { /* 忽略 */ });
+      });
+    }
+
     await loadConfig();
     buildSwatches();
     renderBookmarks();
+    appReady = true;
+
+    const initialEntry = queuedEntry;
+    queuedEntry = null;
+    if (initialEntry && initialEntry.path) {
+      // 入口可能来自全局收藏：先重读配置，保证左栏包含刚写入的书签。
+      if (initialEntry.refresh) {
+        await loadConfig();
+        buildSwatches();
+        renderBookmarks();
+      }
+      await navigateTo(initialEntry.path, initialEntry.highlight || null);
+      return;
+    }
 
     const params = new URLSearchParams(location.search);
     const openPath = params.get("open");
@@ -1059,7 +1101,7 @@
   }
 
   // ============================================================
-  // 对外钩子：供 preload.js 驱动「已打开窗口」跳转
+  // 对外钩子：调试/兼容用；正式入口走 services.onEntry
   // ============================================================
   window.__dirnav = {
     open: function (p, highlight) {

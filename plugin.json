@@ -1,7 +1,7 @@
 {
-  "main": "index.html",
+  "main": "app.html",
   "logo": "logo.png",
-  "preload": "preload.js",
+  "preload": "app-preload.js",
   "features": [
     {
       "code": "dirnav",
@@ -11,7 +11,7 @@
     },
     {
       "code": "dirnav-collect",
-      "description": "把当前资源管理器文件夹直接加入书签（无需打开导航器）",
+      "description": "把当前资源管理器文件夹加入书签并打开导航器",
       "mainHide": true,
       "cmds": [
         "收藏当前文件夹",

@@ -8,7 +8,7 @@
  * 检查内容：
  *   1. 必需文件齐全
  *   2. plugin.json 结构与 uTools 合法字段（含 files 指令 fileType 陷阱）
- *   3. 七个 JS 文件的语法（vm.Script 编译，不执行）
+ *   3. 六个 JS 文件的语法（vm.Script 编译，不执行）
  *   4. app.html 的 id 与 app.js 里 $("#id") 选择器一一对应
  *   5. SVG 雪碧图 symbol 与 icon()/#i-xxx 引用对应
  *   6. services 接口三方一致（app.js 调用点 vs app-preload.js vs demo-services.js）
@@ -60,9 +60,8 @@ function matchAll(src, re) {
 // 1. 必需文件
 // ---------------------------------------------------------------
 const REQUIRED = [
-  "plugin.json", "logo.png", "index.html",
-  "preload.js", "app-preload.js",
-  "app.html", "app.css", "app.js", "demo-services.js",
+  "plugin.json", "logo.png", "app.html",
+  "app-preload.js", "app.css", "app.js", "demo-services.js",
   "bookmark-store.js",
   "ui-check.cmd", "tools/ui-check.js",
   "README.md"
@@ -116,8 +115,12 @@ if (PJ) {
     if (fileExists(PJ.preload)) ok("preload -> " + PJ.preload + "（文件存在）");
     else bad("preload 指向的文件不存在: " + PJ.preload);
   } else {
-    wr("未声明 preload（主窗口就不会有 window.services.openNavigator）");
+    wr("未声明 preload（插件主页面拿不到 window.services）");
   }
+  if (PJ.main === "app.html") ok("main 直接是 app.html（主界面内嵌，无加载中转页）");
+  else bad("main 应为 app.html：导航器需要直接显示在 uTools 主窗口里");
+  if (PJ.preload === "app-preload.js") ok("preload 使用 app-preload.js（主界面与入口共用桥接）");
+  else bad("preload 应为 app-preload.js：否则主界面拿不到 window.services");
 
   // 2.2 features
   if (!Array.isArray(PJ.features) || PJ.features.length === 0) {
@@ -219,7 +222,7 @@ if (PJ) {
 // ---------------------------------------------------------------
 head("3. JS 语法（编译校验，不执行）");
 [
-  "preload.js", "app-preload.js", "app.js", "demo-services.js",
+  "app-preload.js", "app.js", "demo-services.js",
   "bookmark-store.js",
   "tools/verify.js", "tools/ui-check.js"
 ].forEach(function (f) {
@@ -387,9 +390,9 @@ if (appJs) {
   if (/\bconst\s+DRIVES\s*=[^;\n]*DRIVES_SENTINEL/.test(appJs)) ok("app.js 通过 services 取哨兵值");
   else wr("app.js 里没找到 DRIVES = ...DRIVES_SENTINEL 赋值，确认哨兵来源");
 
-  // 页面钩子（preload.js 里的 executeJavaScript 依赖它）
+  // 页面钩子（调试/兼容入口；正式入口走 services.onEntry）
   if (/window\.__dirnav\s*=/.test(appJs)) ok("app.js 暴露了 window.__dirnav 钩子");
-  else bad("app.js 未暴露 window.__dirnav，preload.js 的 navigateExisting 会失效");
+  else wr("app.js 未暴露 window.__dirnav 钩子（调试/兼容入口不可用）");
 }
 
 // ---------------------------------------------------------------
@@ -418,6 +421,13 @@ if (appHtml) {
   if (appHtml.indexOf("app.css") < 0) bad("app.html 未引入 app.css");
   if (!/charset\s*=\s*["']?utf-8/i.test(appHtml)) {
     wr("app.html 未声明 UTF-8 字符集，可能出现中文乱码");
+  }
+
+  // 主界面必须是 app.html，不能再有“正在打开…”中转页
+  if (/正在打开目录导航器|openNavigator/.test(appHtml)) {
+    bad("app.html 里仍有加载中转页/唤起独立窗口的残留");
+  } else {
+    ok("主界面没有加载中转页（直接渲染导航器）");
   }
 
   // uTools 自定义窗口里 file:// 与 utools 两种来源的脚本都要能跑
@@ -472,50 +482,60 @@ TEXT_FILES.forEach(function (f) {
 // 10. 历史 bug 回归守卫
 // ---------------------------------------------------------------
 head("10. 回归守卫");
-if (fileExists("preload.js")) {
-  const p = readText("preload.js");
-  if (/preload\s*:\s*path\.join\(\s*__dirname\s*,/.test(p)) {
-    ok("preload 使用绝对路径 path.join(__dirname, ...)");
+const entrySrc = fileExists("app-preload.js") ? readText("app-preload.js") : "";
+if (entrySrc) {
+  if (/createBrowserWindow/.test(entrySrc)) {
+    bad("app-preload.js 不应再自建独立窗口：主界面直接用 app.html，分离交给 uTools 的 Ctrl+D");
   } else {
-    bad("preload.js 的 webPreferences.preload 必须是 path.join(__dirname, 'app-preload.js') —— 相对路径会被 Electron 解析到 uTools 应用根目录，独立窗口将拿不到 window.services");
+    ok("不再自建独立窗口（原生 Ctrl+D 分离）");
   }
-  if (/contextIsolation\s*:\s*false/.test(p)) ok("显式关闭 contextIsolation");
-  else wr("preload.js 未显式声明 contextIsolation:false（Electron 20+ 默认 true，preload 会 require 不到 node:fs）");
-  if (/nodeIntegration\s*:\s*true/.test(p)) ok("显式开启 nodeIntegration");
-  else wr("preload.js 未显式声明 nodeIntegration:true");
-  if (/sandbox\s*:\s*false/.test(p)) ok("显式关闭 sandbox");
-  else wr("preload.js 未显式声明 sandbox:false");
-  // 收藏指令完成后必须退出插件；其余路径仍不应调用 outPlugin（会连带销毁导航器窗口）
-  const collectBlock = (p.match(/\/\/ ---- 收藏指令[\s\S]*?\/\/ ---- 收藏指令结束/) || [""])[0];
-  if (collectBlock && /utools\.outPlugin\s*\(/.test(collectBlock)) {
-    ok("收藏指令完成后主动退出插件");
+  if (/utools\.onPluginEnter\s*\(/.test(entrySrc)) ok("app-preload.js 注册了 onPluginEnter 入口");
+  else bad("app-preload.js 缺少 onPluginEnter：文件/收藏指令入口会失效");
+  if (/utools\.showMainWindow\s*\(/.test(entrySrc)) ok("文件/收藏入口会显示 uTools 主窗口");
+  else bad("app-preload.js 的入口没有调用 showMainWindow，mainHide 指令会停在隐藏状态");
+  if (/function deliverEntry\s*\(/.test(entrySrc) && /function showAndOpen\s*\(/.test(entrySrc)) {
+    ok("入口目标通过队列投递给页面（初始化竞态安全）");
   } else {
-    bad("收藏指令没有调用 utools.outPlugin()，uTools 会停在空白主窗口");
+    bad("app-preload.js 缺少 deliverEntry/showAndOpen：页面初始化前的入口目标会丢失");
   }
-  const enterIdx = p.indexOf('action.code === "dirnav-collect"');
-  if (enterIdx >= 0 && p.slice(enterIdx, enterIdx + 320).indexOf("__dirnavEntered") >= 0) {
-    ok("收藏指令会阻止 index.html 兜底打开导航器");
+  const collectStart = entrySrc.indexOf("function runCollectCommand");
+  const enterStart = entrySrc.indexOf("utools.onPluginEnter");
+  const collectBlock = collectStart >= 0 && enterStart > collectStart
+    ? entrySrc.slice(collectStart, enterStart)
+    : "";
+  if (/utools\.outPlugin\s*\(/.test(collectBlock)) {
+    bad("收藏后不应再调用 utools.outPlugin()，应打开导航器");
+  } else if (!/showAndOpen\s*\(/.test(collectBlock)) {
+    bad("收藏指令没有调用 showAndOpen，收藏后不会打开导航器");
+  } else if (!/showAndOpen\(\s*target\s*,\s*null\s*,\s*true\s*\)/.test(collectBlock)) {
+    bad("收藏后没有标记 refresh：页面里的旧配置会覆盖刚写入的新书签");
   } else {
-    bad("dirnav-collect 分支未设置 __dirnavEntered：主窗口兜底逻辑仍会打开导航器");
+    ok("收藏后不退出插件，打开导航器并刷新书签栏");
   }
-  const pNoCollect = p.replace(/\/\/ ---- 收藏指令[\s\S]*?\/\/ ---- 收藏指令结束/, "");
-  const pNoComment = pNoCollect
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-  if (!/utools\.outPlugin\s*\(/.test(pNoComment)) {
-    ok("隐藏主窗口时没有真实调用 outPlugin（避免插件退出时连带销毁导航器窗口）");
-  } else {
-    wr("preload.js 里出现了真实调用的 utools.outPlugin() —— 插件退出会销毁自定义窗口，确认是有意为之");
-  }
-  if (/isDestroyed/.test(p)) ok("窗口复用带 isDestroyed 防御");
-  else bad("openNavigator 缺少 isDestroyed 防御，窗口关闭后再唤起会抛异常");
+  if (/action\.code === "dirnav-collect"/.test(entrySrc)) ok("收藏指令分支存在");
+  else bad("app-preload.js 缺少 dirnav-collect 分支");
+  if (/bookmarkStore\.collectCurrentFolder\(utools\)/.test(entrySrc)) ok("收藏仍走 bookmark-store 的 rev 重试逻辑");
+  else bad("收藏指令没有复用 bookmark-store.collectCurrentFolder");
 }
 if (appJs) {
-  if (/window\.__dirnavEntered/.test(fileExists("preload.js") ? readText("preload.js") : "")) {
-    ok("index.html/preload 与 onPluginEnter 的竞态守卫存在");
+  if (/services\.onEntry\s*\(/.test(appJs) && /queuedEntry/.test(appJs) && /appReady/.test(appJs)) {
+    ok("页面接住入口目标，并等配置加载完再导航");
+  } else {
+    bad("app.js 未消费 services.onEntry：文件/收藏入口打开后不会定位");
+  }
+  if (/entry\.refresh/.test(appJs) && /initialEntry\.refresh/.test(appJs)) {
+    ok("入口要求刷新时先重读配置，避免旧配置覆盖新书签");
+  } else {
+    bad("app.js 未处理 entry.refresh：全局收藏后左栏可能看不到新书签，并被旧配置覆盖");
   }
   if (/services\.stat\(/.test(appJs)) ok("打开路径前做了 stat 预检");
   else wr("app.js 未在打开前 stat 预检 —— shellOpenPath 没有返回值，失败无法感知");
+  const cw = appJs.indexOf("function closeWindow");
+  if (cw >= 0 && /services\.exitPlugin\(\)/.test(appJs.slice(cw, cw + 500))) {
+    ok("Esc 收起导航器走 exitPlugin（主界面不再是独立窗口）");
+  } else {
+    wr("closeWindow 未调用 services.exitPlugin：主窗口里 window.close() 可能无效");
+  }
   if (/function clearFilter\s*\(/.test(appJs)) ok("存在 clearFilter（切换目录时清空过滤词）");
   else wr("没有 clearFilter，过滤词可能跨目录残留");
   if (/prevChainLen/.test(appJs)) ok("列数变化时才自动横向滚动（prevChainLen 守卫）");

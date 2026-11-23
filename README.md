@@ -17,7 +17,7 @@
 | 能力 | 说明 |
 | --- | --- |
 | 书签锚点 | 常用目录登记为书签，一键回到起点 |
-| 快速收藏 | 资源管理器里按「收藏当前文件夹」直接入栏；导航器内点「+」也可一键收藏，Shift+点击命名 |
+| 快速收藏 | 资源管理器里按「收藏当前文件夹」直接入栏并打开导航器定位；导航器内点「+」也可一键收藏，Shift+点击命名 |
 | Miller 列下钻 | 单击目录向右开新列，点多少钻多少 |
 | 拖动列宽 | 拖动列与列之间的边调整宽度（160–560px），双击恢复默认；宽度按目录记住 |
 | 面包屑上跳 | 顶部显示完整父级链路，点任意一级跳转 |
@@ -35,13 +35,11 @@
 dir-navigator/
 ├── plugin.json       # 插件清单：入口、关键词、匹配指令
 ├── logo.png          # 插件图标（uTools 清单要求 PNG，256×256）
-├── index.html        # uTools 主面板兜底页（唤起独立大窗口）
-├── preload.js        # 主窗口桥接：onPluginEnter 入口 → 打开导航器窗口 / 快速收藏指令
-├── bookmark-store.js # 书签配置的 Node 侧共享逻辑（读当前目录、去重、rev 重试保存）
-├── app.html          # 导航器独立窗口的 UI（SVG 图标 + 布局）
+├── app.html          # 插件主界面：uTools 主窗口内直接显示，Ctrl+D 原生分离
 ├── app.css           # 设计系统（冷中性色 + Fluent 风格）
 ├── app.js            # 渲染层全逻辑（书签/导航/过滤/键盘/右键/设置）
-├── app-preload.js    # 导航器窗口桥接：暴露 window.services（fs 枚举/打开/存储）
+├── app-preload.js    # 唯一桥接：onPluginEnter 入口 + window.services（fs 枚举/打开/存储）
+├── bookmark-store.js # 书签配置的 Node 侧共享逻辑（读当前目录、去重、rev 重试保存）
 ├── demo-services.js  # 演示桥接：浏览器直开 app.html 时用内存目录树顶替真实 fs
 ├── verify.cmd        # 静态自检入口（双击运行，调用 tools/verify.js）
 ├── ui-check.cmd      # 自动 UI 自检入口（headless Chrome + CDP，调用 tools/ui-check.js）
@@ -66,10 +64,12 @@ dir-navigator/
 
 > `verify.cmd` / `init-git.cmd` / `push-github.cmd` 的**控制台输出故意用英文**：Windows 中文版 cmd 按 GBK(cp936) 解析批处理，UTF-8 文件里的中文会乱码，甚至可能"吞掉"紧跟其后的引号导致命令参数错位。中文提交信息放在 `tools/commit-msg.txt` 里由 `git -F` 读取，不经过批处理解析器。
 
-**两条桥接链：**
+**一条桥接链：**
 
-- `preload.js`（主窗口）→ `window.services.openNavigator()`，负责 `onPluginEnter` 入口与唤起独立窗口。
-- `app-preload.js`（独立窗口）→ `window.services.*`，负责文件系统枚举、打开/定位、对话框、`utools.db` 持久化。
+- `app.html` 运行在 uTools 主窗口的 BrowserView 里，`app-preload.js` 同时负责两件事：
+  - 通过 `window.services.*` 提供文件系统枚举、打开/定位、对话框、`utools.db` 持久化；
+  - 通过 `utools.onPluginEnter()` 接收关键词、资源管理器文件、快速收藏三类入口。入口目标先进入队列，等页面 `init()` 加载完配置后再导航，避免“入口早于页面”的竞态。
+- 独立窗口不再由插件创建：uTools 自带 `Ctrl+D` 分离窗口/合回，状态保留，尺寸可调。插件只负责主界面内容。
 
 **一条演示链：**
 
@@ -109,9 +109,10 @@ dir-navigator/
 - 右键文件/文件夹 → **在目录导航器中打开**（`files` 匹配指令）
   - 选中**目录** → 锚定到该目录；
   - 选中**文件** → 锚定到其父目录并高亮该文件。
-- 在资源管理器里打开任意文件夹 → 呼出 uTools 输入 **收藏当前文件夹**（或给该指令绑定快捷键）→ 直接加入书签并弹出系统通知，不打开导航器。
-  - 命令依赖 uTools 的 `readCurrentFolderPath()`，**必须让资源管理器保持在前台**；如果当前前台不是资源管理器，会提示先打开文件夹。
-  - 同一路径重复收藏不会新增，只提示「已在书签中」。
+- 在资源管理器里打开任意文件夹 → 呼出 uTools 输入 **收藏当前文件夹**（或给该指令绑定快捷键）→ 直接加入书签并弹出系统通知，随后自动打开导航器并定位到该目录。
+  - 命令依赖 uTools 的 `readCurrentFolderPath()`，**必须让资源管理器保持在前台**；如果当前前台不是资源管理器，会提示先打开文件夹，并打开导航器让你手动选。
+  - 同一路径重复收藏不会新增，只提示「已在书签中」，并打开导航器定位过去。
+- 关键词入口直接在主窗口显示导航器，不再有“正在打开目录导航器…”中转页；需要更大的工作区时按 **`Ctrl+D`** 分离为独立窗口，再按一次合回。
 
 **交互（点击为主）：**
 
@@ -170,7 +171,9 @@ ui-check.cmd    :: 需要时：自动 UI 自检（Node.js 22+ 与 Chrome/Edge）
 
 三个脚本都可以直接双击，控制台输出英文（原因见上一节），最后会 `pause` 停住等你看结果；在终端里调用可加 `-nopause` 参数跳过暂停。
 
-`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（含 `files.fileType` 只收 `file`/`directory` 的陷阱、`dirnav-collect` 的 `mainHide` 与 `explorer.exe` 窗口匹配）、七个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及几条历史 bug 的回归守卫（preload 必须绝对路径、Electron 隔离开关、`window.__dirnav` 钩子、`clearFilter`、`prevChainLen`、过滤后刷新状态栏、导航前清理单击定时器、拖动列宽的持久化与样式、收藏指令的退出与去重）。
+`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（`main` 直接指向 `app.html`、`preload` 指向 `app-preload.js`、`dirnav-collect` 的 `mainHide` 与 `explorer.exe` 窗口匹配、`files.fileType` 陷阱）、六个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及历史 bug 的回归守卫（不再自建独立窗口、入口队列投递、收藏后打开导航器而不是退出、`window.__dirnav` 调试钩子、`clearFilter`、`prevChainLen`、过滤后刷新状态栏、导航前清理单击定时器、拖动列宽的持久化与样式、收藏去重）。
+
+当前静态自检为 **75 项**，全部通过。
 
 `tools/ui-check.js` 是**零依赖**的真实浏览器自检：用 Node 22 内置的 `WebSocket` 直连 Chrome DevTools Protocol，以 headless 模式打开 `app.html`（走演示桥接），注入测试助手后用 `Input.dispatchMouseEvent` 发真实鼠标事件，覆盖上面人工清单里的主要路径——启动态、书签导航、Miller 下钻、面包屑回跳、上一级、过滤与「筛选命中 N 项」、`Esc` 清过滤、键盘选择/打开/上钻/下钻、拖动列边调宽（宽度变化、相邻列不受影响、重新进入与刷新后保留、双击复位、最小宽度）、右键菜单、添加书签（含「此电脑」视图不预填 `__DRIVES__` 哨兵）、双击书签、设置持久化、快速收藏（一键入栏、默认命名、重复拦截、Shift 命名、读不到路径的兜底提示）、以及“点目录后立刻切书签不会被 250ms 旧定时器带偏”的竞态守卫。跑完把界面截图写到 `docs/screenshot.png`。
 
@@ -222,11 +225,12 @@ push-github.cmd my-repo    :: 指定仓库名
 
 uTools 模式——开发者工具加载 `plugin.json`：
 
-15. 输入 `folders` 回车 → 独立窗口打开，并恢复到上次目录
-16. 资源管理器里打开一个文件夹（保持前台）→ uTools 输入「收藏当前文件夹」→ 系统通知「已收藏」；再执行一次提示「已在书签中」
-17. 资源管理器里右键文件夹 → 「在目录导航器中打开」→ 窗口定位到该文件夹
-18. 右键一个文件 → 窗口定位到其父目录，且该文件高亮
-19. 关掉窗口后再次唤起 → 窗口正常重建，不报错
+15. 输入 `folders` 回车 → 导航器直接显示在 uTools 主窗口里，不再出现“正在打开…”中转页，并恢复到上次目录
+16. 按 `Ctrl+D` → 页面分离为独立窗口，状态不丢；再按 `Ctrl+D` 合回主窗口
+17. 资源管理器里打开一个文件夹（保持前台）→ uTools 输入「收藏当前文件夹」→ 系统通知「已收藏」，随后导航器打开并定位到该文件夹；再执行一次提示「已在书签中」，同样定位过去
+18. 资源管理器里右键文件夹 → 「在目录导航器中打开」→ 主窗口定位到该文件夹
+19. 右键一个文件 → 定位到其父目录，且该文件高亮
+20. 按 `Esc` 收起导航器，再次唤起 → 恢复正常，不报错
 
 ---
 
@@ -234,10 +238,9 @@ uTools 模式——开发者工具加载 `plugin.json`：
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| 窗口打开但写着「桥接层加载失败」 | preload 没跑起来：路径不对，或 Electron 的 `sandbox`/`contextIsolation` 把 `window.services` 隔离了 | `preload.js` 已用 `path.join(__dirname, "app-preload.js")` 绝对路径，并显式设置 `sandbox:false / contextIsolation:false`；若宿主版本仍隔离，`app-preload.js` 末尾会退回 `contextBridge` 通道 |
-| 窗口一片空白、不显示 | 创建窗口时 `show:false`，回调没被调用就永不显示 | 回调改为闭包兜底 `arguments[0] || navWin`，并在 `onPluginEnter` 路径上直接 `show()` |
+| 页面一片空白，或控制台报 `window.services` 未定义 | `app-preload.js` 没加载，或加载时抛错 | 确认 `plugin.json` 的 `preload` 指向 `app-preload.js`；在开发者工具里看主界面控制台报错，常见原因是 `bookmark-store.js` 缺失或 `electron` 模块不可用 |
+| 主窗口里列太挤、看不了几列 | uTools 主窗口本身尺寸有限，这是内嵌主界面的取舍 | 按 **`Ctrl+D`** 分离为独立窗口，可自由调整大小；再按一次合回 |
 | 右键文件/文件夹没有「在目录导航器中打开」 | `plugin.json` 的 `files` 匹配指令字段非法 | `files` 的 `fileType` 只接受 `"file"` / `"directory"`，**想要文件+文件夹都匹配就整条省略**（当前即如此），`minLength/maxLength` 控制选中数量 |
-| 再次右键打开时窗口停在旧目录 | 窗口复用时没有把新目标推给渲染层 | `preload.js` 的 `navigateExisting()` 通过 `webContents.executeJavaScript` 调用 `window.__dirnav.open()`，加载中会等 `did-finish-load` 再重试 |
 | 插件图标在 uTools 里不显示 | uTools 清单的 `logo` 只接受 PNG | 已使用 256×256 的 `logo.png`；修改图标时从 `docs/logo-source.svg` 重新导出 PNG，保持同名覆盖 |
 | 中文目录名乱码 | 文件系统返回的是 UTF-8，页面声明了 `<meta charset="utf-8">`，正常不会出现 | 若出现，检查宿主是否改写了编码；本插件全部字符串按 UTF-8 处理 |
 
@@ -249,10 +252,10 @@ uTools 模式——开发者工具加载 `plugin.json`：
 - **锚点不做分组**：v1 保持扁平 + 置顶/拖动，分组留待 v2。
 - **单击/双击消歧延迟 250ms**：为同时支持"单击下钻"与"双击在资源管理器打开"。
 - **列宽按目录记忆**：拖动范围限制在 160–560px，最多保存 80 条覆盖值；超出后按最久未用淘汰。设置里的「默认列宽」仍是所有未单独调整过的列的回退值。
-- **窗口关闭了 `sandbox`/`contextIsolation`**：Electron 20+ 默认开启会把 preload 的 `window.services` 隔离掉；本插件只加载本地页面、不加载远程内容，因此按 uTools 插件惯例关闭，以换取 Node 文件系统能力。若要接远程内容，必须重新打开隔离并改写桥接。
+- **主界面是 uTools 主窗口里的 BrowserView**：不再由插件自建 BrowserWindow，所以没有“先 loading 再弹窗”的闪跳；代价是主窗口尺寸受 uTools 限制，需要大工作区时用自带的 `Ctrl+D` 分离。插件无法读取“当前是否已分离”，也不干预分离窗口的生命周期。
 - **图标必须是 PNG**：uTools 清单的 `logo` 只接受 PNG，仓库使用 256×256 的 `logo.png`；`docs/logo-source.svg` 仅作矢量源文件，不参与运行。
 - **`files` 匹配指令不写 `fileType`**：uTools 只接受 `file`/`directory`，省略才同时匹配文件与文件夹。
-- **正常导航路径不调用 `utools.outPlugin()`**：官方文档写明「uTools 主窗口隐藏后，插件应用可能在用户设定时间（默认 3 分钟）内自动退出」。退出会连带销毁导航器窗口，所以这里只 `hideMainWindow()`，让插件保持已进入状态、窗口常驻；只有「收藏当前文件夹」这种没有窗口的指令会在完成后主动退出。
+- **正常导航不调用 `utools.outPlugin()`**：关键词/文件/收藏入口都只 `showMainWindow()` 并投递目标路径，导航器保持常驻；只有页面里按 `Esc` 或主动关闭时才走 `exitPlugin()` 收起插件。收藏指令也不再“收藏完就退出”。
 - **不依赖 uTools 特有 API**：核心逻辑（书签 + Miller 列 + fs 枚举）可平移为独立 Electron/Tauri 应用，降低平台风险。
 
 ---
