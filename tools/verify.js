@@ -8,7 +8,7 @@
  * 检查内容：
  *   1. 必需文件齐全
  *   2. plugin.json 结构与 uTools 合法字段（含 files 指令 fileType 陷阱）
- *   3. 五个 JS 文件的语法（vm.Script 编译，不执行）
+ *   3. 六个 JS 文件的语法（vm.Script 编译，不执行）
  *   4. app.html 的 id 与 app.js 里 $("#id") 选择器一一对应
  *   5. SVG 雪碧图 symbol 与 icon()/#i-xxx 引用对应
  *   6. services 接口三方一致（app.js 调用点 vs app-preload.js vs demo-services.js）
@@ -490,6 +490,29 @@ if (appJs) {
     ok("书签支持双击在资源管理器中打开");
   } else {
     bad("书签缺少 dblclick -> openPath：PRD F2 要求双击锚点在资源管理器中打开");
+  }
+
+  // 2026-11 列宽拖动：直接拖列边调整宽度，并按目录记住
+  if (/function buildColResizer\s*\(/.test(appJs) && /"pointerdown"/.test(appJs) && /"col-resizer"/.test(appJs)) {
+    ok("列边带拖动调整条（pointerdown 起拖）");
+  } else {
+    bad("缺少 .col-resizer / pointerdown：无法直接拖动列边调整宽度");
+  }
+  if (/function rememberColWidth\s*\(/.test(appJs) && /settings\.colWidths/.test(appJs) && /savedColWidth\(col\.path\)/.test(appJs)) {
+    ok("列宽按目录持久化并在重绘时恢复");
+  } else {
+    bad("列宽未按目录持久化：刷新或重新进入目录后拖动结果会丢失");
+  }
+  if (/nextWidth !== prevWidth\) config\.settings\.colWidths = \{\}/.test(appJs)) {
+    ok("修改默认列宽会清空逐列覆盖值");
+  } else {
+    bad("修改默认列宽未清空 colWidths：设置里的默认值会对已拖过的列失效");
+  }
+  const appCss = fileExists("app.css") ? readText("app.css") : "";
+  if (/\.col-resizer\s*\{/.test(appCss) && /body\.col-resizing/.test(appCss)) {
+    ok("拖动条与拖动中光标的样式存在");
+  } else {
+    bad("app.css 缺少 .col-resizer / body.col-resizing 样式");
   }
 }
 

@@ -17,7 +17,8 @@
 | 能力 | 说明 |
 | --- | --- |
 | 书签锚点 | 常用目录登记为书签，一键回到起点 |
-| Miller 列下钻 | 单击目录向右开新列，点多少钻多少，列宽自动收缩 |
+| Miller 列下钻 | 单击目录向右开新列，点多少钻多少 |
+| 拖动列宽 | 拖动列与列之间的边调整宽度（160–560px），双击恢复默认；宽度按目录记住 |
 | 面包屑上跳 | 顶部显示完整父级链路，点任意一级跳转 |
 | 打开 / 定位 | 单击文件打开；双击目录在资源管理器打开；右键可"定位/复制路径" |
 | 此电脑 | 底部入口枚举全部磁盘，从未登记也能浏览 |
@@ -80,7 +81,7 @@ dir-navigator/
 | **① 浏览器演示（最快，无需安装）** | 双击 `app.html`，用 Chrome/Edge 打开 | 全部视觉与交互：书签增删改/置顶/拖动、Miller 列下钻、面包屑回跳、过滤、键盘、右键菜单、设置、空态。顶部会出现「演示模式 · 模拟数据」角标；打开文件/定位只会弹提示，不真操作 |
 | **② uTools 开发模式** | 见下方「安装 / 导入」 | 真实文件系统、`utools.db` 持久化、`shellOpenPath`、`readCurrentFolderPath`、右键匹配指令 |
 | **③ 打包后安装** | 开发者工具「打包」出 `.upx` | 同上，且是用户实际安装路径 |
-| **④ 自动 UI 自检** | 双击 `ui-check.cmd`，或 `node tools/ui-check.js` | 在 headless Chrome 里用真实鼠标事件跑 44 项断言（书签、下钻、面包屑、过滤、键盘、右键、弹窗、设置持久化、竞态守卫），并输出 `docs/screenshot.png` |
+| **④ 自动 UI 自检** | 双击 `ui-check.cmd`，或 `node tools/ui-check.js` | 在 headless Chrome 里用真实鼠标事件跑 54 项断言（书签、下钻、面包屑、过滤、键盘、拖动列宽、右键、弹窗、设置持久化、竞态守卫），并输出 `docs/screenshot.png` |
 
 > 演示模式的数据存在浏览器 `localStorage`（键 `dirnav:demo:config`），与真实 `utools.db` 互不影响；想重置演示数据，清掉该键或换无痕窗口即可。
 
@@ -115,6 +116,7 @@ dir-navigator/
 | 双击目录 | 在资源管理器中打开 |
 | 单击书签 | 锚定到该书签目录 |
 | 双击书签 | 在资源管理器中打开该书签目录 |
+| 拖动列边 | 调整该列宽度；双击边框恢复设置里的默认列宽 |
 | 单击面包屑 | 跳到该级目录 |
 | 右键 | 打开 / 定位 / 复制 / 书签操作 |
 
@@ -131,12 +133,16 @@ dir-navigator/
   _id: "dirnav:config",
   version: 1,
   anchors: [{ id, name, path, color, pinned, order, createdAt, lastVisited }],
-  settings: { showFiles: true, showHidden: false, colWidth: 212, lastPath: "" }
+  settings: {
+    showFiles: true, showHidden: false, colWidth: 212, lastPath: "",
+    colWidths: { "c:\\users\\you\\work": 292 }   // 可选：拖动列边后按目录记住的宽度
+  }
 }
 ```
 
 - `anchors` 数组顺序即显示顺序；置顶=移到最前并打 pin 标记；拖动=重排序。
 - `settings.lastPath` 用于下次打开时恢复上一次会话。
+- `settings.colWidth` 是默认列宽；`settings.colWidths` 保存拖动列边后的单列覆盖值（最多 80 条，键为规范化路径）。改默认列宽会清空这些覆盖值。
 
 ---
 
@@ -156,9 +162,9 @@ ui-check.cmd    :: 需要时：自动 UI 自检（Node.js 22+ 与 Chrome/Edge）
 
 三个脚本都可以直接双击，控制台输出英文（原因见上一节），最后会 `pause` 停住等你看结果；在终端里调用可加 `-nopause` 参数跳过暂停。
 
-`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（含 `files.fileType` 只收 `file`/`directory` 的陷阱）、五个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及几条历史 bug 的回归守卫（preload 必须绝对路径、Electron 隔离开关、`window.__dirnav` 钩子、`clearFilter`、`prevChainLen`、过滤后刷新状态栏、导航前清理单击定时器）。
+`tools/verify.js` 覆盖：必需文件齐全、`plugin.json` 字段合法性（含 `files.fileType` 只收 `file`/`directory` 的陷阱）、六个 JS 文件的语法编译、`app.html` 的 `id` 与 `app.js` 里 `$("#id")` 选择器一一对应、SVG `<symbol>` 与 `icon()`／`href="#i-*"` 引用对应、`services` 接口在真实桥接（`app-preload.js`）与演示桥接（`demo-services.js`）之间的一致性、CSS 括号与 `var()` 变量声明、编码卫生（BOM／混用换行），以及几条历史 bug 的回归守卫（preload 必须绝对路径、Electron 隔离开关、`window.__dirnav` 钩子、`clearFilter`、`prevChainLen`、过滤后刷新状态栏、导航前清理单击定时器、拖动列宽的持久化与样式）。
 
-`tools/ui-check.js` 是**零依赖**的真实浏览器自检：用 Node 22 内置的 `WebSocket` 直连 Chrome DevTools Protocol，以 headless 模式打开 `app.html`（走演示桥接），注入测试助手后用 `Input.dispatchMouseEvent` 发真实鼠标事件，覆盖上面人工清单里的主要路径——启动态、书签导航、Miller 下钻、面包屑回跳、上一级、过滤与「筛选命中 N 项」、`Esc` 清过滤、键盘选择/打开/上钻/下钻、右键菜单、添加书签（含「此电脑」视图不预填 `__DRIVES__` 哨兵）、双击书签、设置持久化、以及“点目录后立刻切书签不会被 250ms 旧定时器带偏”的竞态守卫。跑完把界面截图写到 `docs/screenshot.png`。
+`tools/ui-check.js` 是**零依赖**的真实浏览器自检：用 Node 22 内置的 `WebSocket` 直连 Chrome DevTools Protocol，以 headless 模式打开 `app.html`（走演示桥接），注入测试助手后用 `Input.dispatchMouseEvent` 发真实鼠标事件，覆盖上面人工清单里的主要路径——启动态、书签导航、Miller 下钻、面包屑回跳、上一级、过滤与「筛选命中 N 项」、`Esc` 清过滤、键盘选择/打开/上钻/下钻、拖动列边调宽（宽度变化、相邻列不受影响、重新进入与刷新后保留、双击复位、最小宽度）、右键菜单、添加书签（含「此电脑」视图不预填 `__DRIVES__` 哨兵）、双击书签、设置持久化、以及“点目录后立刻切书签不会被 250ms 旧定时器带偏”的竞态守卫。跑完把界面截图写到 `docs/screenshot.png`。
 
 - 需要 **Node.js 22+**（依赖全局 `WebSocket`）和本机 Chrome 或 Edge；也可用环境变量 `CHROME_PATH` 指定浏览器。
 - 找不到浏览器时打印 `[SKIP]` 并以 `0` 退出，不会让本地检查误报失败。
@@ -203,6 +209,7 @@ push-github.cmd my-repo    :: 指定仓库名
 10. 工具栏「+」→ 弹窗能浏览选目录、改名、选颜色；保存后左栏多一个书签
 11. 拖书签换顺序；右键书签可置顶 / 编辑 / 删除
 12. 设置里关掉「显示文件」→ 列里只剩目录；重开页面仍保持
+13. 拖动列与列之间的边 → 当前列变宽/变窄，双击边框恢复默认；重开页面仍记得
 
 uTools 模式——开发者工具加载 `plugin.json`：
 
@@ -231,6 +238,7 @@ uTools 模式——开发者工具加载 `plugin.json`：
 - **枚举用 `fs.readdirSync`（同步即时枚举）**：为的是"前后几级"秒开、零索引；单列超过 1000 项会截断并提示。跨盘全局模糊搜目录名未做（留给后续，需要 Everything 索引，且 1.5a 的 `alpha_instance` 会破坏 SDK 连接）。
 - **锚点不做分组**：v1 保持扁平 + 置顶/拖动，分组留待 v2。
 - **单击/双击消歧延迟 250ms**：为同时支持"单击下钻"与"双击在资源管理器打开"。
+- **列宽按目录记忆**：拖动范围限制在 160–560px，最多保存 80 条覆盖值；超出后按最久未用淘汰。设置里的「默认列宽」仍是所有未单独调整过的列的回退值。
 - **窗口关闭了 `sandbox`/`contextIsolation`**：Electron 20+ 默认开启会把 preload 的 `window.services` 隔离掉；本插件只加载本地页面、不加载远程内容，因此按 uTools 插件惯例关闭，以换取 Node 文件系统能力。若要接远程内容，必须重新打开隔离并改写桥接。
 - **`logo.svg` 而非 png**：矢量图标在缩放/深色主题下更清晰；个别旧版本若校验格式，替换成 256×256 png 即可（见「故障排查」）。
 - **`files` 匹配指令不写 `fileType`**：uTools 只接受 `file`/`directory`，省略才同时匹配文件与文件夹。

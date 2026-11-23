@@ -16,6 +16,9 @@
   const BOOKMARK_COLORS = ["#0067c0", "#c2395f", "#2e9e5b", "#d97706", "#7a5cd6", "#0e7490"];
   const MAX_ITEMS = 1000;       // 单列最多显示条数，超大目录做截断
   const DBLCLICK_MS = 250;      // 单击/双击消歧延迟
+  const MIN_COL_W = 160;        // 拖动列边时的最小列宽
+  const MAX_COL_W = 560;        // 拖动列边时的最大列宽
+  const MAX_COL_WIDTHS = 80;    // 最多按目录记住多少条自定义列宽
 
   // ---------- DOM ----------
   const $ = function (sel) { return document.querySelector(sel); };
@@ -46,6 +49,7 @@
   let clickTimer = null;        // 单击/双击消歧
   let navSeq = 0;               // 导航序号：丢弃快速连续导航的过期异步结果
   let toastTimer = null;
+  let colDrag = null;           // 正在拖动的列宽调整状态
 
   // ============================================================
   // 工具
@@ -73,6 +77,88 @@
   }
   function currentPath() {
     return chain.length ? chain[chain.length - 1].path : null;
+  }
+
+  // ---------- 列宽 ----------
+  // 按目录记住的列宽；0 表示使用设置里的默认列宽
+  function savedColWidth(path) {
+    const map = config && config.settings ? config.settings.colWidths : null;
+    const w = map ? parseInt(map[normPath(path)], 10) : NaN;
+    return isNaN(w) ? 0 : Math.max(MIN_COL_W, Math.min(MAX_COL_W, w));
+  }
+
+  function setColWidth(colEl, w) {
+    colEl.style.width = w + "px";
+    colEl.style.flex = "0 0 " + w + "px";
+  }
+
+  function rememberColWidth(path, w) {
+    if (!config) return;
+    if (!config.settings.colWidths) config.settings.colWidths = {};
+    const map = config.settings.colWidths;
+    const key = normPath(path);
+    delete map[key];
+    map[key] = Math.round(w);
+    const keys = Object.keys(map);
+    while (keys.length > MAX_COL_WIDTHS) delete map[keys.shift()];
+    saveConfig();
+  }
+
+  function resetColWidth(colEl, path) {
+    const map = config && config.settings.colWidths;
+    if (map) delete map[normPath(path)];
+    colEl.style.width = "";
+    colEl.style.flex = "";
+    saveConfig();
+  }
+
+  function onColDragMove(e) {
+    if (!colDrag) return;
+    const dx = e.clientX - colDrag.startX;
+    if (Math.abs(dx) > 1) colDrag.moved = true;
+    colDrag.width = Math.max(MIN_COL_W, Math.min(MAX_COL_W, colDrag.startW + dx));
+    setColWidth(colDrag.colEl, colDrag.width);
+  }
+
+  function endColDrag() {
+    if (!colDrag) return;
+    const d = colDrag;
+    colDrag = null;
+    document.body.classList.remove("col-resizing");
+    if (d.colEl) d.colEl.classList.remove("resizing");
+    window.removeEventListener("pointermove", onColDragMove);
+    window.removeEventListener("pointerup", endColDrag);
+    window.removeEventListener("pointercancel", endColDrag);
+    if (d.moved) rememberColWidth(d.path, d.width);
+  }
+
+  function buildColResizer(colEl, col) {
+    const rz = document.createElement("div");
+    rz.className = "col-resizer";
+    rz.title = "拖动调整列宽 · 双击恢复默认";
+    rz.setAttribute("role", "separator");
+    rz.setAttribute("aria-orientation", "vertical");
+    rz.setAttribute("aria-label", "调整列宽");
+    rz.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (colDrag) endColDrag();
+      hideContextMenu();
+      const w = Math.round(colEl.getBoundingClientRect().width);
+      colDrag = { colEl: colEl, path: col.path, startX: e.clientX, startW: w, width: w, moved: false };
+      colEl.classList.add("resizing");
+      document.body.classList.add("col-resizing");
+      window.addEventListener("pointermove", onColDragMove);
+      window.addEventListener("pointerup", endColDrag);
+      window.addEventListener("pointercancel", endColDrag);
+    });
+    rz.addEventListener("dblclick", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      resetColWidth(colEl, col.path);
+    });
+    return rz;
   }
 
   function toast(msg, isErr) {
@@ -395,6 +481,8 @@
     chain.forEach(function (col, i) {
       const colEl = document.createElement("div");
       colEl.className = "col";
+      const saved = savedColWidth(col.path);
+      if (saved) setColWidth(colEl, saved);
 
       const head = document.createElement("div");
       head.className = "col-head";
@@ -432,6 +520,7 @@
       }
 
       colEl.appendChild(list);
+      colEl.appendChild(buildColResizer(colEl, col));
       wrap.appendChild(colEl);
     });
 
@@ -753,9 +842,13 @@
   }
 
   async function applySettings() {
+    const prevWidth = config.settings.colWidth;
+    const nextWidth = parseInt(els.setColWidth.value, 10) || 212;
     config.settings.showFiles = els.setShowFiles.checked;
     config.settings.showHidden = els.setShowHidden.checked;
-    config.settings.colWidth = parseInt(els.setColWidth.value, 10) || 212;
+    config.settings.colWidth = nextWidth;
+    // 默认列宽改变时，清掉逐列拖动出来的覆盖值，让新默认值整体生效
+    if (nextWidth !== prevWidth) config.settings.colWidths = {};
     saveConfig();
     applySettingsToUI();
     closeOverlay();

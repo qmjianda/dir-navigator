@@ -253,6 +253,24 @@ async function main() {
       return false;
     }
 
+    // 用真实鼠标事件拖动列宽调整条
+    async function dragBy(pt, dx) {
+      const steps = 6;
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mousePressed", x: pt.x, y: pt.y, button: "left", buttons: 1, clickCount: 1
+      });
+      for (let i = 1; i <= steps; i++) {
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved", x: pt.x + dx * i / steps, y: pt.y, button: "left", buttons: 1
+        });
+        await sleep(20);
+      }
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseReleased", x: pt.x + dx, y: pt.y, button: "left", buttons: 0, clickCount: 1
+      });
+      await sleep(180);
+    }
+
     await cdp.send("Page.navigate", { url: APP_URL });
     check("app boots with demo bridge", await waitReady(12000));
 
@@ -293,6 +311,24 @@ async function main() {
         return Array.from(document.querySelectorAll(".col:last-child .col-item .name")).map(function (el) { return el.textContent; });
       },
       cols: function () { return document.querySelectorAll(".columns .col").length; },
+      resizers: function () { return document.querySelectorAll(".col-resizer").length; },
+      colWidths: function () {
+        return Array.from(document.querySelectorAll(".columns .col")).map(function (el) {
+          return Math.round(el.getBoundingClientRect().width);
+        });
+      },
+      handlePt: function (i) {
+        var el = document.querySelectorAll(".col-resizer")[i];
+        if (!el) return null;
+        var r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + 20 };
+      },
+      dblResizer: function (i) {
+        var el = document.querySelectorAll(".col-resizer")[i];
+        if (!el) return false;
+        el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+        return true;
+      },
       crumbs: function () {
         return Array.from(document.querySelectorAll("#breadcrumb .crumb-name")).map(function (el) { return el.textContent; });
       },
@@ -422,7 +458,55 @@ async function main() {
       "crumb=" + (await evaluate("__t.crumb()")));
 
     // -----------------------------------------------------------
-    section("6. 右键菜单");
+    section("6. 拖动列边调整宽度");
+    await evaluate('__t.clickItem("client-2024")');
+    check("进入 client-2024 形成两列", await waitFor('__t.crumb() === "client-2024" && __t.cols() === 2'),
+      "cols=" + (await evaluate("__t.cols()")));
+    check("每列右边都有拖动条", (await evaluate("__t.resizers()")) === 2,
+      "resizers=" + (await evaluate("__t.resizers()")));
+    const w0 = await evaluate("__t.colWidths()");
+    const h0 = await evaluate("__t.handlePt(0)");
+    check("拖动条可命中", !!h0, JSON.stringify(h0));
+    if (h0) await dragBy(h0, 80);
+    const w1 = await evaluate("__t.colWidths()");
+    check("拖动后第一列加宽约 80px", w1[0] >= w0[0] + 70 && w1[0] <= w0[0] + 90,
+      w0.join("/") + " -> " + w1.join("/"));
+    check("第二列宽度不受影响", w1[1] === w0[1], w0.join("/") + " -> " + w1.join("/"));
+
+    // 离开再回来：按目录记住的宽度应恢复
+    await evaluate('__t.clickCrumb("Work")');
+    await waitFor('__t.crumb() === "Work"');
+    await evaluate('__t.clickItem("client-2024")');
+    await waitFor('__t.crumb() === "client-2024"');
+    const w2 = await evaluate("__t.colWidths()");
+    check("重新进入后自定义宽度保留", Math.abs(w2[0] - w1[0]) <= 2, w2.join("/"));
+
+    // 刷新后依然保留（持久化到配置）
+    await cdp.send("Page.reload");
+    await waitReady(12000);
+    await inject();
+    await evaluate('__t.clickBm("Work")');
+    await waitFor('__t.crumb() === "Work"');
+    await evaluate('__t.clickItem("client-2024")');
+    await waitFor('__t.crumb() === "client-2024"');
+    const w3 = await evaluate("__t.colWidths()");
+    check("刷新后自定义宽度仍保留", Math.abs(w3[0] - w1[0]) <= 2, w3.join("/"));
+
+    // 双击恢复默认列宽
+    check("双击拖动条", await evaluate("__t.dblResizer(0)"));
+    const w4 = await evaluate("__t.colWidths()");
+    check("双击后恢复默认 212px", Math.abs(w4[0] - 212) <= 2, w4.join("/"));
+
+    // 最小宽度限制
+    const h2 = await evaluate("__t.handlePt(0)");
+    if (h2) await dragBy(h2, -600);
+    const w5 = await evaluate("__t.colWidths()");
+    check("向左拖动时最小列宽 160px", w5[0] >= 158 && w5[0] <= 164, w5.join("/"));
+    await evaluate('__t.clickCrumb("Work")');
+    await waitFor('__t.crumb() === "Work"');
+
+    // -----------------------------------------------------------
+    section("7. 右键菜单");
     await evaluate('__t.ctxItem("client-2024")');
     check("右键目录弹出菜单", await evaluate("__t.ctxOpen()"));
     check("菜单包含 添加为书签/复制路径",
@@ -445,7 +529,7 @@ async function main() {
     check("Esc 关闭书签弹窗", !(await evaluate("__t.overlayOpen()")));
 
     // -----------------------------------------------------------
-    section("7. 此电脑 / 磁盘");
+    section("8. 此电脑 / 磁盘");
     await evaluate('document.querySelector("#thisPcBtn").click()');
     check("进入此电脑，显示 C:/D:", await waitFor('__t.crumb() === "此电脑" && __t.names().length === 2'),
       JSON.stringify(await evaluate("__t.names()")));
@@ -462,14 +546,14 @@ async function main() {
     await sleep(2300);
 
     // -----------------------------------------------------------
-    section("8. 双击书签（PRD F2）");
+    section("9. 双击书签（PRD F2）");
     await evaluate('__t.dblBm("素材库")');
     check("双击书签调用资源管理器打开", await waitFor('/打开/.test(__t.toast())', 2000),
       "toast=" + (await evaluate("__t.toast()")));
     await sleep(2400);
 
     // -----------------------------------------------------------
-    section("9. 新增书签与持久化");
+    section("10. 新增书签与持久化");
     await evaluate('__t.clickBm("Work")');
     await waitFor('__t.crumb() === "Work"');
     await evaluate('document.querySelector("#addBtn").click()');
@@ -495,7 +579,7 @@ async function main() {
       "crumb=" + (await evaluate("__t.crumb()")));
 
     // -----------------------------------------------------------
-    section("10. 设置持久化");
+    section("11. 设置持久化");
     await evaluate('document.querySelector("#settingsBtn").click()');
     check("设置弹窗可见", await evaluate('!document.querySelector("#overlay").classList.contains("hidden")'));
     await evaluate('document.querySelector("#setShowFiles").click()');
@@ -515,7 +599,7 @@ async function main() {
       JSON.stringify(await evaluate("__t.names()")));
 
     // -----------------------------------------------------------
-    section("11. 控制台与截图");
+    section("12. 控制台与截图");
     check("无未捕获异常", !health.errors, "exceptions=" + (health.errors || 0));
 
     if (SHOT) {
