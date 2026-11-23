@@ -1,0 +1,12 @@
+初始提交：目录导航器（uTools 插件）
+
+可视化锚点书签 + 面包屑父级链路 + Miller 列邻域导航，全鼠标操作，
+解决「深层目录每次都要从盘符一级级点进去」的问题。
+
+- plugin.json：folders / 目录导航 关键词入口，文件与文件夹右键「在目录导航器中打开」
+- preload.js：主窗口桥接，创建并复用独立导航窗口，跨唤起传递目标路径
+- app-preload.js：独立窗口桥接（fs 即时枚举、utools.db 持久化、系统对话框）
+- app.html / app.css / app.js：Fluent 风格界面与交互引擎（书签、面包屑、列导航、右键菜单、键盘辅助）
+- demo-services.js：浏览器演示桥接，双击 app.html 即可查看交互
+- tools/verify.js：静态自检（文件完整性、清单字段、语法编译、DOM 与图标接线、接口一致性、回归守卫）
+- init-git.cmd / verify.cmd / .gitattributes / .gitignore：本地工程化脚本

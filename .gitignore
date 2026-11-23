@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+dist/
+out/
+build/
+*.upx
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+.DS_Store
+ehthumbs.db
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*~
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+*.tmp
+.tmp/

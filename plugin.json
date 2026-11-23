@@ -1,0 +1,30 @@
+{
+  "main": "index.html",
+  "logo": "logo.svg",
+  "preload": "preload.js",
+  "features": [
+    {
+      "code": "dirnav",
+      "description": "可视化目录导航器：书签锚点 + Miller 列，快速定位并打开文件夹与文件",
+      "cmds": ["folders", "目录导航", "文件夹导航", "dirnav", "书签栏"],
+      "platform": ["win32"]
+    },
+    {
+      "code": "dirnav-open",
+      "description": "在目录导航器中打开所选文件夹或文件",
+      "mainHide": true,
+      "cmds": [
+        {
+          "type": "files",
+          "label": "在目录导航器中打开",
+          "minLength": 1,
+          "maxLength": 1
+        }
+      ],
+      "platform": ["win32"]
+    }
+  ],
+  "pluginSetting": {
+    "single": true
+  }
+}

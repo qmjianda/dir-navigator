@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>目录导航器</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{
+    font-family:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:linear-gradient(180deg,#f0f3f7 0%,#e9edf2 100%);
+    color:#46536a;display:flex;align-items:center;justify-content:center;
+    text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;
+  }
+  .box{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .box svg{width:44px;height:44px}
+  .box .t{font-size:13px;letter-spacing:.02em}
+</style>
+</head>
+<body>
+<div class="box">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <rect width="64" height="64" rx="14" fill="#0067c0"/>
+    <path d="M14 22.5A3.5 3.5 0 0 1 17.5 19h9.3c.9 0 1.8.36 2.4 1l2 2H46A3.5 3.5 0 0 1 49.5 25.5v16A3.5 3.5 0 0 1 46 45H18A3.5 3.5 0 0 1 14.5 41.5v-19z" fill="#ffd76e"/>
+    <path d="M14 26.5h36v15A3.5 3.5 0 0 1 46.5 45H18A3.5 3.5 0 0 1 14.5 41.5v-15z" fill="#ffc238"/>
+    <path d="M24 33.5l5 5 11-11.5" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="t">正在打开目录导航器…</div>
+</div>
+<script>
+  // 兜底：若 onPluginEnter 没触发（例如直接打开主面板），延迟主动唤起导航窗口。
+  // 延迟是为了给 onPluginEnter 让路——它带着 ?open 目标，比空白窗口更有价值。
+  window.addEventListener("DOMContentLoaded", function () {
+    setTimeout(function () {
+      if (window.__dirnavEntered) return;               // 入口事件已经处理过
+      if (window.services && typeof window.services.openNavigator === "function") {
+        window.services.openNavigator();
+      }
+    }, 600);
+  });
+</script>
+</body>
+</html>
